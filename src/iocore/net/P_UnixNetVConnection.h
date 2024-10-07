@@ -40,6 +40,9 @@
 #include "P_NetAccept.h"
 #include "iocore/net/NetEvent.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #if HAVE_STRUCT_MPTCP_INFO_SUBFLOWS
 #include <linux/mptcp.h>
 #endif
@@ -57,6 +60,10 @@ class UnixNetVConnection : public NetVConnection, public NetEvent
 public:
   VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override;
   VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false) override;
+
+#if TS_USE_LINUX_SPLICE
+  void set_pipe(int pipe_fds[2] = nullptr) override;
+#endif
 
   bool get_data(int id, void *data) override;
 
@@ -263,6 +270,10 @@ private:
   /** The shared group across all connections for this IP to track incoming
    * connections for connection limiting. */
   std::shared_ptr<ConnectionTracker::Group> conn_track_group;
+
+#if TS_USE_LINUX_SPLICE
+  int local_pipe_fds[2]; // Member variable to store the pipe file descriptors
+#endif
 };
 
 extern ClassAllocator<UnixNetVConnection> netVCAllocator;
