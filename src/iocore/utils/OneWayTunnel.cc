@@ -95,7 +95,17 @@ OneWayTunnel::SetupTwoWayTunnel(OneWayTunnel *east, OneWayTunnel *west)
   west->tunnel_peer = east;
 }
 
-OneWayTunnel::~OneWayTunnel() {}
+OneWayTunnel::~OneWayTunnel()
+{
+#if TS_USE_LINUX_SPLICE
+  if (pipe_fds[0] >= 0) {
+    close(pipe_fds[0]);
+  }
+  if (pipe_fds[1] >= 0) {
+    close(pipe_fds[1]);
+  }
+#endif
+}
 
 OneWayTunnel::OneWayTunnel(Continuation *aCont, Transform_fn aManipulate_fn, bool aclose_source, bool aclose_target)
   : Continuation(aCont ? aCont->mutex.get() : new_ProxyMutex()),
@@ -154,6 +164,21 @@ OneWayTunnel::init(VConnection *vcSource, VConnection *vcTarget, Continuation *a
   vioSource = vcSource->do_io_read(this, nbytes, buf1);
   vioTarget = vcTarget->do_io_write(this, nbytes, buf2->alloc_reader(), false);
   ink_assert(vioSource && vioTarget);
+
+#if TS_USE_LINUX_SPLICE
+  // If using Linux splice, create a pipe for data transfer.
+  if (pipe(pipe_fds) < 0) {
+    lerrno = errno;
+    Dbg(dbg_ctl_one_way_tunnel, "Failed to create pipe: %s", strerror(lerrno));
+    return;
+  }
+
+  // Inject the full pipe into the VConnections.
+  vcSource->set_pipe(pipe_fds); // Set both ends of the pipe in the source.
+  vcTarget->set_pipe(pipe_fds); // Set both ends of the pipe in the target.
+
+  Dbg(dbg_ctl_one_way_tunnel, "Pipe created with fds [%d, %d]", pipe_fds[0], pipe_fds[1]);
+#endif
 
   return;
 }

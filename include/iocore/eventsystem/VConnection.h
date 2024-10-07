@@ -246,6 +246,14 @@ public:
   virtual VIO *do_io_write(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, IOBufferReader *buf = nullptr,
                            bool owner = false) = 0;
 
+#if TS_USE_LINUX_SPLICE
+  virtual void
+  set_pipe(int pipe_fds[2] = nullptr)
+  {
+    // Default implementation does nothing.
+  }
+#endif
+
   /**
     Indicate that the VConnection is no longer needed.
 

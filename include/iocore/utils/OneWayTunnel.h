@@ -195,6 +195,7 @@ struct OneWayTunnel : public Continuation {
   Transform_fn  manipulate_fn = nullptr;
   int           n_connections = 0;
   int           lerrno        = 0;
+  int           pipe_fds[2]   = {-1, -1};
 
   bool single_buffer    = false;
   bool close_source     = false;

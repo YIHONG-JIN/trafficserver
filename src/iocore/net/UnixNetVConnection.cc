@@ -226,15 +226,84 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
     return;
   }
 
-  MIOBufferAccessor &buf = s->vio.buffer;
-  ink_assert(buf.writer());
-
   // if there is nothing to do, disable connection
   int64_t ntodo = s->vio.ntodo();
   if (ntodo <= 0) {
     read_disable(nh, vc);
     return;
   }
+
+#if TS_USE_LINUX_SPLICE
+  // Use splice to transfer data from socket to pipe
+  int64_t total_read = 0;
+  int64_t r          = 0;
+
+  // Attempt to splice data from the socket to the pipe
+  while (ntodo > 0) {
+    int64_t toread = ntodo;
+    // Attempt to splice data from the socket to the pipe
+    r = ::splice(vc->con.sock.fd, nullptr, vc->pipe_fds[1], nullptr, toread, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+
+    if (r <= 0) {
+      if (r == -EAGAIN || r == -ENOTCONN) {
+        Metrics::Counter::increment(net_rsb.calls_to_read_nodata);
+        vc->read.triggered = 0;
+        nh->read_ready_list.remove(vc);
+        return;
+      }
+
+      if (!r || r == -ECONNRESET) {
+        vc->read.triggered = 0;
+        nh->read_ready_list.remove(vc);
+        read_signal_done(VC_EVENT_EOS, nh, vc);
+        return;
+      }
+
+      vc->read.triggered = 0;
+      read_signal_error(nh, vc, static_cast<int>(-r));
+      return;
+    }
+
+    total_read += r;
+    ntodo      -= r;
+
+    Metrics::Counter::increment(net_rsb.read_bytes, r);
+    Metrics::Counter::increment(net_rsb.read_bytes_count);
+    s->vio.ndone += r;
+    net_activity(vc, thread);
+  }
+
+  // Signal read complete if there's nothing more to read
+  if (total_read > 0) {
+    if (s->vio.ntodo() <= 0) {
+      read_signal_done(VC_EVENT_READ_COMPLETE, nh, vc);
+      return;
+    }
+
+    if (read_signal_and_update(VC_EVENT_READ_READY, vc) != EVENT_CONT) {
+      return;
+    }
+
+    if (lock.get_mutex() != s->vio.mutex.get()) {
+      read_reschedule(nh, vc);
+      return;
+    }
+  }
+
+  // If there is nothing more to read, disable the connection
+  if (s->vio.ntodo() <= 0 || !s->enabled) {
+    read_disable(nh, vc);
+    return;
+  }
+
+  read_reschedule(nh, vc);
+
+#else
+  // Fallback to old way (buffer-based) if TS_USE_LINUX_SPLICE is 0
+  MIOBufferAccessor &buf = s->vio.buffer;
+  ink_assert(buf.writer());
+
+  // If there is nothing to do, disable connection
   int64_t toread = buf.writer()->write_avail();
   if (toread > ntodo) {
     toread = ntodo;
@@ -354,6 +423,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
   }
 
   read_reschedule(nh, vc);
+#endif
 }
 
 //
@@ -446,7 +516,67 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
     write_disable(nh, vc);
     return;
   }
+#if TS_USE_LINUX_SPLICE
+  // Use splice to transfer data from pipe to socket
+  int64_t total_written = 0;
+  int64_t r             = 0;
 
+  // Attempt to splice data from the pipe to the network socket
+  while (ntodo > 0) {
+    int64_t towrite = ntodo;
+
+    // Splice from the pipe (vc->pipe_fds[0]) to the socket (vc->con.sock.fd)
+    r = ::splice(vc->pipe_fds[0], nullptr, vc->con.sock.fd, nullptr, towrite, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+
+    if (r <= 0) {
+      if (r == -EAGAIN || r == -ENOTCONN) {
+        Metrics::Counter::increment(net_rsb.calls_to_write_nodata);
+        vc->write.triggered = 0;
+        nh->write_ready_list.remove(vc);
+        write_reschedule(nh, vc);
+        return;
+      }
+
+      // Handle connection reset or other errors
+      vc->write.triggered = 0;
+      write_signal_error(nh, vc, static_cast<int>(-r));
+      return;
+    }
+
+    total_written += r;
+    ntodo         -= r;
+
+    Metrics::Counter::increment(net_rsb.write_bytes, r);
+    Metrics::Counter::increment(net_rsb.write_bytes_count);
+    s->vio.ndone += r;
+    net_activity(vc, thread);
+  }
+
+  if (total_written > 0) {
+    if (s->vio.ntodo() <= 0) {
+      write_signal_done(VC_EVENT_WRITE_COMPLETE, nh, vc);
+      return;
+    }
+
+    if (write_signal_and_update(VC_EVENT_WRITE_READY, vc) != EVENT_CONT) {
+      return;
+    }
+
+    if (lock.get_mutex() != s->vio.mutex.get()) {
+      write_reschedule(nh, vc);
+      return;
+    }
+  }
+
+  if (ntodo <= 0 || !s->enabled) {
+    write_disable(nh, vc);
+    return;
+  }
+
+  write_reschedule(nh, vc);
+
+#else
+  // Fallback to old way (buffer-based) if TS_USE_LINUX_SPLICE is 0
   MIOBufferAccessor &buf = s->vio.buffer;
   ink_assert(buf.writer());
 
@@ -576,6 +706,7 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
 
     return;
   }
+#endif
 }
 
 bool
@@ -1581,3 +1712,19 @@ UnixNetVConnection::_out_context_tunnel()
   Metrics::Counter::increment(net_rsb.tunnel_total_server_connections_blind_tcp);
   Metrics::Gauge::increment(net_rsb.tunnel_current_server_connections_blind_tcp);
 }
+
+#if TS_USE_LINUX_SPLICE
+void
+UnixNetVConnection::set_pipe(int pipe_fds[2])
+{
+  if (pipe_fds) {
+    // Assign the values from the passed pipe_fds to the class member variable local_pipe_fds
+    pipe_fds[0] = pipe_fds[0];
+    pipe_fds[1] = pipe_fds[1];
+  } else {
+    // In this case, set them to -1 to indicate that no valid pipe descriptors are set.
+    pipe_fds[0] = -1;
+    pipe_fds[1] = -1;
+  }
+}
+#endif
