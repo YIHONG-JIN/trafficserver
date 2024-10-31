@@ -18,6 +18,19 @@
       }
     },
     {
+      "name": "default-splice",
+      "displayName": "Default build with splice",
+      "description": "Default build using Ninja generator with splice",
+      "inherits": ["default"],
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_COLOR_DIAGNOSTICS": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "USE_SPLICE": "ON"
+      }
+    },
+    {
       "name": "layout-defaults",
       "displayName": "Default install layout paths template",
       "hidden": true,
@@ -61,16 +74,17 @@
       }
     },
     {
-      "name": "dev",
+      "name": "dev-splice",
       "displayName": "development",
-      "description": "Development Presets",
+      "description": "Development Presets with splice",
       "inherits": ["default"],
       "binaryDir": "${sourceDir}/build-${presetName}",
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_COLOR_DIAGNOSTICS": "ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_INSTALL_PREFIX": "/tmp/ats-dev"
+        "CMAKE_INSTALL_PREFIX": "/tmp/ats-dev",
+        "USE_SPLICE": "ON"
       }
     },
     {
