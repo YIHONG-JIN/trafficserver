@@ -1331,18 +1331,20 @@ TS_INLINE void PipeIOBuffer::alloc(int64_t pipe_capacity) {
   if (pipe2(fd, O_NONBLOCK) < 0) {
     throw std::runtime_error("Pipe creation failed");
   }
-  // Set the pipe capacity with extra space to avoid unexpected blocking on write
-  // https://man7.org/linux/man-pages/man2/fcntl.2.html#:~:text=Changing%20the%20capacity%20of%20a%20pipe
-  // When allocating the buffer for the pipe, the kernel may use a capacity larger than arg, if that is convenient for
-  // the implementation.  (In the current implementation, the allocation is the next higher power-of-two page-size
-  // multiple of the requested size.)
-  if (fcntl(fd[1], F_SETPIPE_SZ, pipe_capacity * 2) < 0) {
-    close(fd[0]);
-    close(fd[1]);
-    throw std::runtime_error("Pipe capacity setting failed");
-  }
-
   this->pipe_capacity = pipe_capacity;
+
+  // Set the pipe capacity to the requested value if it is not the default value which is 16 pages
+  if (pipe_capacity != 16 * getpagesize()) {
+    // https://man7.org/linux/man-pages/man2/fcntl.2.html#:~:text=Changing%20the%20capacity%20of%20a%20pipe
+    // When allocating the buffer for the pipe, the kernel may use a capacity larger than arg, if that is convenient for
+    // the implementation.  (In the current implementation, the allocation is the next higher power-of-two page-size
+    // multiple of the requested size.)
+    if (fcntl(fd[1], F_SETPIPE_SZ, pipe_capacity) < 0) {
+      close(fd[0]);
+      close(fd[1]);
+      throw std::runtime_error("Pipe capacity setting failed");
+    }
+  }
 }
 
 TS_INLINE void PipeIOBuffer::append_block_internal([[maybe_unused]] IOBufferBlock *b) {

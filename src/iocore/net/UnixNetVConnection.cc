@@ -886,6 +886,12 @@ UnixNetVConnection::net_write_io(NetHandler *nh)
     int e = 0;
     if (!signalled || (s->vio.ntodo() > 0 && !buf.writer()->high_water())) {
       e = VC_EVENT_WRITE_READY;
+#if TS_USE_LINUX_SPLICE
+      PipeIOBufferReader *pipe_reader = dynamic_cast<PipeIOBufferReader *>(buf.reader());
+      if (pipe_reader && pipe_reader->read_avail() > 0) {
+        e = 0;
+      }
+#endif
     } else if (wbe_event != this->write_buffer_empty_event) {
       // @a signalled means we won't send an event, and the event values differing means we
       // had a write buffer trap and cleared it, so we need to send it now.
