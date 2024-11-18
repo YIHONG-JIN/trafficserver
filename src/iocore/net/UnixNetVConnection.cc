@@ -574,7 +574,12 @@ UnixNetVConnection::net_read_io(NetHandler *nh)
       return;
     }
 
-    read_reschedule(nh, this);
+    // We should only splice once to the pipe
+    // Linux splice() does not merge pipe buffer page so there is no guarantee that we can splice to pipe again
+    // without receiving EAGAIN from pipe even if data_in_pipe < pipe_capacity
+    // Disable read until consumer finish a successful splice from pipe to socket operation
+    // which means there are available pages in the pipe
+    read_disable(nh, this);
     return;
   }
 

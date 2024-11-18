@@ -1327,11 +1327,16 @@ TS_INLINE void PipeIOBuffer::set([[maybe_unused]] void *b, [[maybe_unused]] int6
 }
 
 TS_INLINE void PipeIOBuffer::alloc(int64_t pipe_capacity) {
+  // The default pipe capacity is 64KB equivalent to 16 pages on x86_64
   if (pipe2(fd, O_NONBLOCK) < 0) {
     throw std::runtime_error("Pipe creation failed");
   }
   // Set the pipe capacity with extra space to avoid unexpected blocking on write
-  if (fcntl(fd[1], F_SETPIPE_SZ, pipe_capacity * 3) < 0) {
+  // https://man7.org/linux/man-pages/man2/fcntl.2.html#:~:text=Changing%20the%20capacity%20of%20a%20pipe
+  // When allocating the buffer for the pipe, the kernel may use a capacity larger than arg, if that is convenient for
+  // the implementation.  (In the current implementation, the allocation is the next higher power-of-two page-size
+  // multiple of the requested size.)
+  if (fcntl(fd[1], F_SETPIPE_SZ, pipe_capacity * 2) < 0) {
     close(fd[0]);
     close(fd[1]);
     throw std::runtime_error("Pipe capacity setting failed");
