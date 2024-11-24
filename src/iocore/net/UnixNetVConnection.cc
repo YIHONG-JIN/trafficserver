@@ -515,7 +515,7 @@ UnixNetVConnection::net_read_io(NetHandler *nh)
     // Use splice_to to transfer data from socket directly to pipe with SPLICE_F_MORE hint
     int64_t to_splice = std::min(ntodo, pipe_buffer->write_avail());
     if (to_splice > 0) {
-      r = con.sock.splice_to(pipe_buffer->fd[1], to_splice, SPLICE_F_MOVE | SPLICE_F_NONBLOCK | SPLICE_F_MORE);
+      r = con.sock.splice_to(pipe_buffer->fd[1], to_splice, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
 
       if (r <= 0) {
         // Temporary Unavailable, Non-Blocking I/O
@@ -944,7 +944,7 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
     PipeIOBuffer *pipe_buffer = static_cast<PipeIOBuffer *>(pipe_reader->mbuf);
     int64_t to_splice = std::min(towrite, pipe_reader->read_avail());
     if (to_splice > 0) {
-      r = con.sock.splice_from(pipe_buffer->fd[0], to_splice, SPLICE_F_MOVE | SPLICE_F_NONBLOCK | SPLICE_F_MORE);
+      r = con.sock.splice_from(pipe_buffer->fd[0], to_splice, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
       if (r > 0) {
         pipe_buffer->consume(r);
         total_written += r;
