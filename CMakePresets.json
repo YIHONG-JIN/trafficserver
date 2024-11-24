@@ -74,17 +74,16 @@
       }
     },
     {
-      "name": "dev-splice",
+      "name": "dev",
       "displayName": "development",
-      "description": "Development Presets with splice",
+      "description": "Development Presets",
       "inherits": ["default"],
       "binaryDir": "${sourceDir}/build-${presetName}",
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_COLOR_DIAGNOSTICS": "ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_INSTALL_PREFIX": "/tmp/ats-dev",
-        "USE_SPLICE": "ON"
+        "CMAKE_INSTALL_PREFIX": "/tmp/ats-dev"
       }
     },
     {
